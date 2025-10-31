@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SoundSprite — Live Sampler</title>
+  <meta name="description" content="SoundSprite: browser micro-sampler. Record short samples, map to pads, play, sequence, and save." />
+  <style>
+    /* Minimal attractive styling */
+    :root{
+      --bg:#0f1724;
+      --panel:#0b1220;
+      --accent:#7c3aed;
+      --muted:#94a3b8;
+      --glass: rgba(255,255,255,0.04);
+      --pad-size:110px;
+      --radius:14px;
+      font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg),#071025);color:#ecf2ff}
+    .app{
+      max-width:980px;margin:28px auto;padding:20px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);
+      border-radius:18px;box-shadow:0 8px 30px rgba(2,6,23,0.7);backdrop-filter: blur(6px);
+    }
+    header{display:flex;align-items:center;gap:16px;margin-bottom:14px}
+    .logo{
+      width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#4f46e5);
+      display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:white;box-shadow:0 6px 18px rgba(124,58,237,0.18);
+    }
+    h1{font-size:20px;margin:0}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+    .main{display:grid;grid-template-columns: 1fr 320px;gap:18px;margin-top:18px}
+    /* left panel */
+    .panel{background:var(--panel);padding:16px;border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
+    .pads{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .pad{
+      height:var(--pad-size);border-radius:12px;background:linear-gradient(180deg,var(--glass),transparent);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;
+      transition:transform .12s ease, box-shadow .12s ease;
+      border:1px solid rgba(255,255,255,0.02);
+    }
+    .pad:active{transform:translateY(2px)}
+    .pad .key{font-weight:700;font-size:18px}
+    .pad .label{font-size:12px;color:var(--muted);margin-top:6px}
+    .pad.playing{box-shadow:0 10px 30px rgba(124,58,237,0.18);transform:scale(1.04)}
+    /* controls */
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    button, .btn{
+      background:linear-gradient(180deg,#1f2937,#111827);border:0;padding:10px 12px;border-radius:10px;color:#fff;cursor:pointer;font-weight:600;
+      box-shadow:0 6px 12px rgba(2,6,23,0.5);
+    }
+    .btn.secondary{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);font-weight:600}
+    label{font-size:13px;color:var(--muted)}
+    .controls .row{display:flex;gap:8px;align-items:center}
+    /* right sidebar */
+    .sidebar{display:flex;flex-direction:column;gap:12px}
+    .rec-status{padding:12px;border-radius:10px;background:linear-gradient(180deg, rgba(124,58,237,0.06), transparent)}
+    .small{font-size:12px;color:var(--muted)}
+    .list{display:grid;gap:8px}
+    input[type="text"], select, input[type="number"]{
+      width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;
+    }
+    .seq-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+    .step{height:36px;border-radius:8px;background:rgba(255,255,255,0.02);display:flex;align-items:center;justify-content:center;cursor:pointer}
+    .step.on{background:linear-gradient(90deg,var(--accent),#4f46e5);box-shadow:0 8px 18px rgba(79,70,229,0.14)}
+    footer{margin-top:16px;color:var(--muted);font-size:12px;text-align:center}
+    @media(max-width:880px){ .main{grid-template-columns:1fr} .sidebar{order:2} }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="logo">SS</div>
+      <div>
+        <h1>SoundSprite</h1>
+        <p class="lead">Record short samples, map to pads, trigger with keys, and sequence loops — all in your browser.</p>
+      </div>
+    </header>
+
+    <div class="main">
+      <!-- Left: pads and controls -->
+      <section class="panel" id="left-panel">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <strong>Pads</strong>
+            <div class="small">Click or press keys (A..I)</div>
+          </div>
+          <div class="small">Saved locally</div>
+        </div>
+
+        <div class="pads" id="pads">
+          <!-- pads inserted by JS -->
+          <div class="pad" data-pad="0"><div class="key">A</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="1"><div class="key">S</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="2"><div class="key">D</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="3"><div class="key">F</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="4"><div class="key">G</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="5"><div class="key">H</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="6"><div class="key">J</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="7"><div class="key">K</div><div class="label">Empty</div></div>
+          <div class="pad" data-pad="8"><div class="key">L</div><div class="label">Empty</div></div>
+        </div>
+
+        <div class="controls">
+          <div class="row">
+            <button id="record-btn" class="btn">Record Sample</button>
+            <button id="stop-btn" class="btn secondary" disabled>Stop</button>
+          </div>
+          <div class="row" style="margin-left:auto">
+            <label class="small">Monitor</label>
+            <input id="monitor-chk" type="checkbox" title="Monitor mic while recording" />
+          </div>
+        </div>
+
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+          <button id="clear-btn" class="btn secondary">Clear Selected</button>
+          <button id="download-all" class="btn">Download All</button>
+        </div>
+      </section>
+
+      <!-- Right: recorder, mapping, sequencer -->
+      <aside class="sidebar">
+        <div class="panel rec-status">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <strong>Recorder</strong>
+              <div class="small">Sample length ≤ 6s recommended</div>
+            </div>
+            <div id="rec-indicator" class="small">Idle</div>
+          </div>
+          <div style="margin-top:8px" class="list">
+            <label class="small">Selected pad</label>
+            <select id="pad-select">
+              <option value="0">A</option>
+              <option value="1">S</option>
+              <option value="2">D</option>
+              <option value="3">F</option>
+              <option value="4">G</option>
+              <option value="5">H</option>
+              <option value="6">J</option>
+              <option value="7">K</option>
+              <option value="8">L</option>
+            </select>
+
+            <label class="small">Name</label>
+            <input id="pad-name" type="text" placeholder="Enter label for selected pad" />
+
+            <label class="small">Volume</label>
+            <input id="pad-volume" type="number" min="0" max="200" value="100" />
+          </div>
+        </div>
+
+        <div class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong>4-step Sequencer</strong>
+            <div class="small">BPM <span id="bpm-val">100</span></div>
+          </div>
+          <div style="margin-top:10px">
+            <input id="bpm" type="range" min="60" max="200" value="100" />
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button id="play-loop" class="btn">Play</button>
+              <button id="stop-loop" class="btn secondary" disabled>Stop</button>
+              <button id="clear-loop" class="btn secondary">Clear</button>
+            </div>
+            <div style="margin-top:10px" class="seq-grid" id="seq-grid">
+              <!-- grid created by JS -->
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <strong>Local storage</strong>
+          <div class="small" style="margin-top:6px">Saved pads & sequence persist automatically.</div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button id="save-now" class="btn secondary">Save</button>
+            <button id="reset-all" class="btn">Reset</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer>
+      SoundSprite — client only. Press pad keys A S D F G H J K L. Samples saved to browser.
+    </footer>
+  </div>
+
+  <!-- script will be added in next commit -->
+  <script src="script.js" defer></script>
+</body>
+</html>
