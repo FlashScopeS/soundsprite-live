@@ -1,6 +1,5 @@
-// script.js — SoundSprite core (commit 2)
-// Modern ES6+, no external libs
-
+// script.js — SoundSprite (commit 3)
+// Contains: pad management, recorder, sequencer, and persistence
 const PAD_KEYS = ['A','S','D','F','G','H','J','K','L'];
 const padsContainer = document.getElementById('pads');
 const padSelect = document.getElementById('pad-select');
@@ -13,26 +12,44 @@ const monitorChk = document.getElementById('monitor-chk');
 const clearBtn = document.getElementById('clear-btn');
 const downloadAllBtn = document.getElementById('download-all');
 
+const bpmSlider = document.getElementById('bpm');
+const bpmVal = document.getElementById('bpm-val');
+const playLoopBtn = document.getElementById('play-loop');
+const stopLoopBtn = document.getElementById('stop-loop');
+const seqGrid = document.getElementById('seq-grid');
+const clearLoopBtn = document.getElementById('clear-loop');
+
+const saveNowBtn = document.getElementById('save-now');
+const resetAllBtn = document.getElementById('reset-all');
+
 let audioCtx = null;
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
-let monitoring = false;
 
+const STORAGE_KEY = 'soundsprite_v1';
+
+// pads state
 const pads = new Array(9).fill(null).map(() => ({
   name: 'Empty',
   buffer: null,
   volume: 1,
-  dataURL: null, // optional base64 for export
+  dataURL: null,
 }));
 
-// helper: ensure audio context
+// sequencer state (9 pads x 4 steps) -> boolean
+let seq = Array.from({length:9},()=> [false,false,false,false]);
+
+// sequencer runtime
+let seqTimer = null;
+let seqStep = 0;
+let seqPlaying = false;
+
 function ensureAudioContext(){
   if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
 }
 
-// update pad UI labels
 function refreshPadUI(){
   const padEls = padsContainer.querySelectorAll('.pad');
   padEls.forEach(el => {
@@ -42,7 +59,6 @@ function refreshPadUI(){
   });
 }
 
-// play an AudioBuffer for pad index
 function playPad(idx){
   const pad = pads[idx];
   if(!pad.buffer) return;
@@ -53,51 +69,127 @@ function playPad(idx){
   gain.gain.value = pad.volume ?? 1;
   src.connect(gain).connect(ctx.destination);
   src.start(0);
-  // visual feedback
   const el = padsContainer.querySelector(`.pad[data-pad="${idx}"]`);
   el.classList.add('playing');
   setTimeout(()=> el.classList.remove('playing'), 220);
 }
 
-// attach pad click handlers and map keyboard keys
-padsContainer.addEventListener('click', e => {
-  const padEl = e.target.closest('.pad');
-  if(!padEl) return;
-  const idx = Number(padEl.dataset.pad);
-  // If pad selected in dropdown != clicked, update selection
-  padSelect.value = String(idx);
-  padNameInput.value = pads[idx].name === 'Empty' ? '' : pads[idx].name;
-  playPad(idx);
-});
-
-window.addEventListener('keydown', e => {
-  const key = e.key.toUpperCase();
-  const idx = PAD_KEYS.indexOf(key);
-  if(idx >= 0) {
-    playPad(idx);
-    padSelect.value = String(idx);
-    padNameInput.value = pads[idx].name === 'Empty' ? '' : pads[idx].name;
+// build sequencer grid UI (4 steps)
+function buildSeqGrid(){
+  seqGrid.innerHTML = '';
+  for(let step=0;step<4;step++){
+    const column = document.createElement('div');
+    // we'll display vertically by step (grid handles it)
   }
-});
+  // create 4 columns but arranged as 4-step UI
+  for(let s=0;s<4;s++){
+    for(let p=0;p<9;p++){
+      const cell = document.createElement('div');
+      cell.className = 'step';
+      cell.dataset.pad = p;
+      cell.dataset.step = s;
+      if(seq[p][s]) cell.classList.add('on');
+      cell.addEventListener('click', ()=> {
+        seq[p][s] = !seq[p][s];
+        cell.classList.toggle('on', seq[p][s]);
+        saveToLocal(); // auto-save sequence
+      });
+      seqGrid.appendChild(cell);
+    }
+  }
+}
 
-// set selected pad attributes
-padSelect.addEventListener('change', () => {
-  const idx = Number(padSelect.value);
-  padNameInput.value = pads[idx].name === 'Empty' ? '' : pads[idx].name;
-  padVolumeInput.value = Math.round((pads[idx].volume ?? 1) * 100);
-});
-padNameInput.addEventListener('input', () => {
-  const idx = Number(padSelect.value);
-  pads[idx].name = padNameInput.value.trim() || 'Empty';
-  refreshPadUI();
-});
-padVolumeInput.addEventListener('input', () => {
-  const idx = Number(padSelect.value);
-  const v = Number(padVolumeInput.value)/100;
-  pads[idx].volume = Number.isFinite(v)? v : 1;
-});
+// sequencer step tick
+function seqTick(){
+  // play all pads with seq[pad][seqStep]
+  for(let p=0;p<9;p++){
+    if(seq[p][seqStep]) playPad(p);
+  }
+  // advance visual step (we'll highlight step column)
+  highlightSeqColumn(seqStep);
+  seqStep = (seqStep + 1) % 4;
+}
 
-// Recording helpers
+// highlight a column visually
+function highlightSeqColumn(step){
+  // clear all step highlights then add small glow for current step
+  const cells = seqGrid.querySelectorAll('.step');
+  cells.forEach(cell => {
+    cell.style.opacity = '1';
+    const s = Number(cell.dataset.step);
+    if(s === step){
+      cell.style.boxShadow = 'inset 0 0 0 2px rgba(255,255,255,0.02), 0 8px 18px rgba(124,58,237,0.08)';
+    } else {
+      cell.style.boxShadow = '';
+    }
+  });
+}
+
+// play/stop loop
+function startLoop(){
+  if(seqPlaying) return;
+  seqPlaying = true;
+  const bpm = Number(bpmSlider.value) || 100;
+  const beatMs = 60000 / bpm; // quarter note
+  const stepMs = beatMs / 1; // treat each step as quarter
+  seqStep = 0;
+  seqTick(); // immediate
+  seqTimer = setInterval(seqTick, stepMs);
+  playLoopBtn.disabled = true;
+  stopLoopBtn.disabled = false;
+}
+function stopLoop(){
+  if(!seqPlaying) return;
+  clearInterval(seqTimer);
+  seqTimer = null;
+  seqPlaying = false;
+  playLoopBtn.disabled = false;
+  stopLoopBtn.disabled = true;
+  highlightSeqColumn(-1);
+}
+
+// persistence
+function saveToLocal(){
+  const serial = pads.map(p => ({
+    name: p.name,
+    volume: p.volume,
+    dataURL: p.dataURL
+  }));
+  const state = {pads: serial, seq, bpm: Number(bpmSlider.value)};
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+async function loadFromLocal(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(!raw) return;
+  try {
+    const obj = JSON.parse(raw);
+    if(obj.pads){
+      for(let i=0;i<obj.pads.length && i<pads.length;i++){
+        const p = obj.pads[i];
+        pads[i].name = p.name || 'Empty';
+        pads[i].volume = p.volume ?? 1;
+        pads[i].dataURL = p.dataURL ?? null;
+        if(pads[i].dataURL){
+          // convert base64 to AudioBuffer
+          const arrayBuf = await fetch(pads[i].dataURL).then(r=>r.arrayBuffer());
+          const ctx = ensureAudioContext();
+          try {
+            const buf = await ctx.decodeAudioData(arrayBuf.slice(0));
+            pads[i].buffer = buf;
+          } catch(e){ console.warn('decode saved pad failed', e); }
+        }
+      }
+    }
+    if(obj.seq) seq = obj.seq;
+    if(obj.bpm) bpmSlider.value = String(obj.bpm);
+    bpmVal.textContent = bpmSlider.value;
+  } catch(err){
+    console.warn('load error', err);
+  }
+}
+
+// recording + assigning (kept modular)
 async function startRecording(){
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     alert('getUserMedia not supported in this browser');
@@ -105,7 +197,6 @@ async function startRecording(){
   }
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
-    // create AudioContext for monitoring if checkbox is checked
     if(monitorChk.checked){
       ensureAudioContext();
       const src = audioCtx.createMediaStreamSource(mediaStream);
@@ -123,6 +214,7 @@ async function startRecording(){
       recIndicator.textContent = 'Idle';
       stopBtn.disabled = true;
       recordBtn.disabled = false;
+      saveToLocal();
     };
     mediaRecorder.start();
     recIndicator.textContent = 'Recording...';
@@ -139,9 +231,6 @@ function stopStreamTracks(){
     mediaStream.getTracks().forEach(t => t.stop());
     mediaStream = null;
   }
-  if(audioCtx && audioCtx.state !== 'closed') {
-    // do not close audioCtx here; keep for playback
-  }
 }
 
 async function assignRecordingToSelectedPad(blob){
@@ -152,9 +241,7 @@ async function assignRecordingToSelectedPad(blob){
     const idx = Number(padSelect.value);
     pads[idx].buffer = buffer;
     pads[idx].name = padNameInput.value.trim() || `Sample ${PAD_KEYS[idx]}`;
-    // store a WAV-like dataURL for download convenience
-    const wavURL = await blobToBase64(blob);
-    pads[idx].dataURL = wavURL;
+    pads[idx].dataURL = await blobToBase64(blob);
     refreshPadUI();
   } catch(err){
     console.error('decode error', err);
@@ -176,7 +263,46 @@ async function blobToBase64(blob){
   });
 }
 
-// buttons
+// UI binding & events
+padsContainer.addEventListener('click', e => {
+  const padEl = e.target.closest('.pad');
+  if(!padEl) return;
+  const idx = Number(padEl.dataset.pad);
+  padSelect.value = String(idx);
+  padNameInput.value = pads[idx].name === 'Empty' ? '' : pads[idx].name;
+  padVolumeInput.value = Math.round((pads[idx].volume ?? 1) * 100);
+  playPad(idx);
+});
+
+window.addEventListener('keydown', e => {
+  const key = e.key.toUpperCase();
+  const idx = PAD_KEYS.indexOf(key);
+  if(idx >= 0) {
+    playPad(idx);
+    padSelect.value = String(idx);
+    padNameInput.value = pads[idx].name === 'Empty' ? '' : pads[idx].name;
+    padVolumeInput.value = Math.round((pads[idx].volume ?? 1) * 100);
+  }
+});
+
+padSelect.addEventListener('change', () => {
+  const idx = Number(padSelect.value);
+  padNameInput.value = pads[idx].name === 'Empty' ? '' : pads[idx].name;
+  padVolumeInput.value = Math.round((pads[idx].volume ?? 1) * 100);
+});
+padNameInput.addEventListener('input', () => {
+  const idx = Number(padSelect.value);
+  pads[idx].name = padNameInput.value.trim() || 'Empty';
+  refreshPadUI();
+  saveToLocal();
+});
+padVolumeInput.addEventListener('input', () => {
+  const idx = Number(padSelect.value);
+  const v = Number(padVolumeInput.value)/100;
+  pads[idx].volume = Number.isFinite(v)? v : 1;
+  saveToLocal();
+});
+
 recordBtn.addEventListener('click', startRecording);
 stopBtn.addEventListener('click', stopRecording);
 
@@ -184,11 +310,27 @@ clearBtn.addEventListener('click', () => {
   const idx = Number(padSelect.value);
   pads[idx] = {name:'Empty', buffer:null, volume:1, dataURL:null};
   refreshPadUI();
+  saveToLocal();
 });
 
-// quick download all as zip-like (will download each as separate files)
-downloadAllBtn.addEventListener('click', async () => {
-  // download each pad that has dataURL
+// single-pad download (clicking pad name triggers download)
+padsContainer.addEventListener('dblclick', e => {
+  const padEl = e.target.closest('.pad');
+  if(!padEl) return;
+  const idx = Number(padEl.dataset.pad);
+  if(pads[idx].dataURL){
+    const a = document.createElement('a');
+    a.href = pads[idx].dataURL;
+    a.download = `${pads[idx].name || 'pad' + idx}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } else {
+    alert('No sample to download for this pad.');
+  }
+});
+
+downloadAllBtn.addEventListener('click', () => {
   pads.forEach((p, i) => {
     if(p && p.dataURL){
       const a = document.createElement('a');
@@ -201,10 +343,52 @@ downloadAllBtn.addEventListener('click', async () => {
   });
 });
 
-// initial UI setup
-function init(){
-  // pad labels already set — but set names array to labels
+// sequencer controls
+bpmSlider.addEventListener('input', () => {
+  bpmVal.textContent = bpmSlider.value;
+  saveToLocal();
+  // if playing, restart with new BPM
+  if(seqPlaying){
+    stopLoop();
+    startLoop();
+  }
+});
+playLoopBtn.addEventListener('click', startLoop);
+stopLoopBtn.addEventListener('click', stopLoop);
+clearLoopBtn.addEventListener('click', () => {
+  seq = Array.from({length:9},()=> [false,false,false,false]);
+  buildSeqGrid();
+  saveToLocal();
+});
+
+// persistence buttons
+saveNowBtn.addEventListener('click', () => {
+  saveToLocal();
+  alert('Saved locally.');
+});
+resetAllBtn.addEventListener('click', () => {
+  if(!confirm('Reset all pads and sequence? This cannot be undone.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  // reset runtime state
+  for(let i=0;i<9;i++) pads[i] = {name:'Empty', buffer:null, volume:1, dataURL:null};
+  seq = Array.from({length:9},()=> [false,false,false,false]);
+  buildSeqGrid();
   refreshPadUI();
-  padVolumeInput.value = 100;
+  bpmSlider.value = 100;
+  bpmVal.textContent = 100;
+});
+
+// visual grid build, initialization
+function buildPadsUI(){
+  // pads already present in DOM markup; just ensure labels reflect state
+  refreshPadUI();
+}
+function init(){
+  buildPadsUI();
+  buildSeqGrid();
+  loadFromLocal().then(()=> {
+    refreshPadUI();
+    buildSeqGrid();
+  });
 }
 init();
