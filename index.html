@@ -6,7 +6,6 @@
   <title>SoundSprite — Live Sampler</title>
   <meta name="description" content="SoundSprite: browser micro-sampler. Record short samples, map to pads, play, sequence, and save." />
   <style>
-    /* Minimal attractive styling */
     :root{
       --bg:#0f1724;
       --panel:#0b1220;
@@ -30,7 +29,6 @@
     h1{font-size:20px;margin:0}
     p.lead{margin:0;color:var(--muted);font-size:13px}
     .main{display:grid;grid-template-columns: 1fr 320px;gap:18px;margin-top:18px}
-    /* left panel */
     .panel{background:var(--panel);padding:16px;border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
     .pads{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
     .pad{
@@ -41,9 +39,8 @@
     }
     .pad:active{transform:translateY(2px)}
     .pad .key{font-weight:700;font-size:18px}
-    .pad .label{font-size:12px;color:var(--muted);margin-top:6px}
+    .pad .label{font-size:12px;color:var(--muted);margin-top:6px;max-width:86%;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
     .pad.playing{box-shadow:0 10px 30px rgba(124,58,237,0.18);transform:scale(1.04)}
-    /* controls */
     .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
     button, .btn{
       background:linear-gradient(180deg,#1f2937,#111827);border:0;padding:10px 12px;border-radius:10px;color:#fff;cursor:pointer;font-weight:600;
@@ -52,7 +49,6 @@
     .btn.secondary{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);font-weight:600}
     label{font-size:13px;color:var(--muted)}
     .controls .row{display:flex;gap:8px;align-items:center}
-    /* right sidebar */
     .sidebar{display:flex;flex-direction:column;gap:12px}
     .rec-status{padding:12px;border-radius:10px;background:linear-gradient(180deg, rgba(124,58,237,0.06), transparent)}
     .small{font-size:12px;color:var(--muted)}
@@ -68,9 +64,9 @@
   </style>
 </head>
 <body>
-  <div class="app" id="app">
+  <div class="app" id="app" role="application" aria-label="SoundSprite sampler">
     <header>
-      <div class="logo">SS</div>
+      <div class="logo" aria-hidden="true">SS</div>
       <div>
         <h1>SoundSprite</h1>
         <p class="lead">Record short samples, map to pads, trigger with keys, and sequence loops — all in your browser.</p>
@@ -78,18 +74,16 @@
     </header>
 
     <div class="main">
-      <!-- Left: pads and controls -->
       <section class="panel" id="left-panel">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div>
             <strong>Pads</strong>
-            <div class="small">Click or press keys (A..I)</div>
+            <div class="small">Click or press keys (A..L). Double click a pad to download its sample.</div>
           </div>
           <div class="small">Saved locally</div>
         </div>
 
-        <div class="pads" id="pads">
-          <!-- pads inserted by JS -->
+        <div class="pads" id="pads" aria-live="polite">
           <div class="pad" data-pad="0"><div class="key">A</div><div class="label">Empty</div></div>
           <div class="pad" data-pad="1"><div class="key">S</div><div class="label">Empty</div></div>
           <div class="pad" data-pad="2"><div class="key">D</div><div class="label">Empty</div></div>
@@ -103,34 +97,33 @@
 
         <div class="controls">
           <div class="row">
-            <button id="record-btn" class="btn">Record Sample</button>
-            <button id="stop-btn" class="btn secondary" disabled>Stop</button>
+            <button id="record-btn" class="btn" title="Start recording for selected pad">Record Sample</button>
+            <button id="stop-btn" class="btn secondary" disabled title="Stop recording">Stop</button>
           </div>
-          <div class="row" style="margin-left:auto">
-            <label class="small">Monitor</label>
+          <div class="row" style="margin-left:auto;align-items:center">
+            <label class="small" for="monitor-chk">Monitor</label>
             <input id="monitor-chk" type="checkbox" title="Monitor mic while recording" />
           </div>
         </div>
 
         <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
-          <button id="clear-btn" class="btn secondary">Clear Selected</button>
-          <button id="download-all" class="btn">Download All</button>
+          <button id="clear-btn" class="btn secondary" title="Clear selected pad">Clear Selected</button>
+          <button id="download-all" class="btn" title="Download all recorded samples">Download All</button>
         </div>
       </section>
 
-      <!-- Right: recorder, mapping, sequencer -->
       <aside class="sidebar">
         <div class="panel rec-status">
           <div style="display:flex;justify-content:space-between;align-items:center">
             <div>
               <strong>Recorder</strong>
-              <div class="small">Sample length ≤ 6s recommended</div>
+              <div class="small">Sample length ≤ 6s recommended — recorded as webm.</div>
             </div>
             <div id="rec-indicator" class="small">Idle</div>
           </div>
           <div style="margin-top:8px" class="list">
             <label class="small">Selected pad</label>
-            <select id="pad-select">
+            <select id="pad-select" aria-label="Select pad">
               <option value="0">A</option>
               <option value="1">S</option>
               <option value="2">D</option>
@@ -145,7 +138,7 @@
             <label class="small">Name</label>
             <input id="pad-name" type="text" placeholder="Enter label for selected pad" />
 
-            <label class="small">Volume</label>
+            <label class="small">Volume (%)</label>
             <input id="pad-volume" type="number" min="0" max="200" value="100" />
           </div>
         </div>
@@ -156,21 +149,20 @@
             <div class="small">BPM <span id="bpm-val">100</span></div>
           </div>
           <div style="margin-top:10px">
-            <input id="bpm" type="range" min="60" max="200" value="100" />
+            <input id="bpm" type="range" min="60" max="200" value="100" aria-label="BPM" />
             <div style="display:flex;gap:8px;margin-top:10px">
               <button id="play-loop" class="btn">Play</button>
               <button id="stop-loop" class="btn secondary" disabled>Stop</button>
               <button id="clear-loop" class="btn secondary">Clear</button>
             </div>
-            <div style="margin-top:10px" class="seq-grid" id="seq-grid">
-              <!-- grid created by JS -->
+            <div style="margin-top:10px" class="seq-grid" id="seq-grid" aria-hidden="false" title="Click cells to toggle steps">
             </div>
           </div>
         </div>
 
         <div class="panel">
           <strong>Local storage</strong>
-          <div class="small" style="margin-top:6px">Saved pads & sequence persist automatically.</div>
+          <div class="small" style="margin-top:6px">Saved automatically. Use Reset to clear everything.</div>
           <div style="margin-top:8px;display:flex;gap:8px">
             <button id="save-now" class="btn secondary">Save</button>
             <button id="reset-all" class="btn">Reset</button>
@@ -180,11 +172,10 @@
     </div>
 
     <footer>
-      SoundSprite — client only. Press pad keys A S D F G H J K L. Samples saved to browser.
+      SoundSprite — client only. Tip: press keys A S D F G H J K L to trigger pads. Double click a pad to download its sample.
     </footer>
   </div>
 
-  <!-- script will be added in next commit -->
   <script src="script.js" defer></script>
 </body>
 </html>
